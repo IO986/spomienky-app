@@ -1,5 +1,5 @@
 // Network-first cache of the app shell so the app opens even without signal.
-const CACHE = "spomienky-20261120114617";
+const CACHE = "spomienky-20261120114854";
 const ASSETS = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

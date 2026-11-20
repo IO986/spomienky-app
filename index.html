@@ -60,6 +60,7 @@ audio{width:100%;margin:8px 0}
 .queue li{margin:4px 0}
 .hidden{display:none!important}
 small{color:var(--muted)}
+a{color:var(--accent);font-weight:600}
 </style>
 </head>
 <body>
@@ -180,7 +181,7 @@ let S = lsGet("settings", {owner:"", repo:"", branch:"main", token:""});
   const h = new URLSearchParams(location.hash.slice(1));
   if (h.get("owner") && !S.owner) S.owner = h.get("owner");
   if (h.get("repo") && !S.repo) S.repo = h.get("repo");
-  if (location.hash) history.replaceState(null, "", location.pathname);
+  if (location.hash){ lsSet("settings", S); history.replaceState(null, "", location.pathname); }
 })();
 const configured = () => S.owner && S.repo && S.token;
 function tokenUrl(owner){
