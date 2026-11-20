@@ -105,11 +105,13 @@ a{color:var(--accent);font-weight:600}
 
   <!-- OTÁZKA -->
   <section class="card" id="qCard">
+    <select id="qSecSel" aria-label="Okruh" style="margin-bottom:12px"></select>
     <div class="q-sec" id="qSec">Otázka</div>
     <div class="q-text" id="qText">Načítavam…</div>
     <div class="row">
-      <button class="btn" id="btnNextQ">Iná otázka</button>
-      <button class="btn" id="btnFreeQ">Bez otázky</button>
+      <button class="btn" id="btnNextQ">Ďalšia</button>
+      <button class="btn" id="btnRandQ">Náhodná</button>
+      <button class="btn" id="btnFreeQ">Voľne</button>
     </div>
   </section>
 
@@ -383,18 +385,44 @@ function parseQuestions(md){
 }
 async function loadQuestions(force){
   if (configured() && (force || !QS.length || navigator.onLine)){
-    try{ QS = parseQuestions(await gh("/contents/otazky/zasobnik.md?ref="+encodeURIComponent(S.branch), {accept:"application/vnd.github.raw+json"})); lsSet("questions", QS); }
-    catch{}
+    try{
+      QS = parseQuestions(await gh("/contents/otazky/zasobnik.md?ref="+encodeURIComponent(S.branch), {accept:"application/vnd.github.raw+json"}));
+      lsSet("questions", QS);
+      // Forget local "answered" marks for questions Claude already ticked off in the repo.
+      answered = answered.filter(a => QS.some(x=>x.q===a)); lsSet("answered", answered);
+    }catch{}
   }
-  showQuestion();
+  fillSecs(); showQuestion();
+}
+// Selected topic ("" = all) and questions already answered on this phone (until Claude ticks them off).
+let selSec = lsGet("selSec", ""), answered = lsGet("answered", []), freeMode = false;
+const pool = () => QS.filter(x => (!selSec || x.sec===selSec) && !answered.includes(x.q));
+function fillSecs(){
+  const sel = $("#qSecSel"), secs = [...new Set(QS.map(x=>x.sec).filter(Boolean))];
+  sel.innerHTML = "";
+  for (const [v,t] of [["","Všetky okruhy"], ...secs.map(s=>[s,s])]){
+    const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o);
+  }
+  if (selSec && !secs.includes(selSec)) selSec = "";
+  sel.value = selSec;
+}
+function showFree(){
+  currentQ = null;
+  $("#qSec").textContent = "Voľne"+(selSec ? " · "+selSec : "");
+  $("#qText").textContent = selSec ? "Rozprávaj o čomkoľvek z tohto okruhu." : "Rozprávaj o čomkoľvek, čo sa ti práve vynorí.";
 }
 function showQuestion(){
-  if (!QS.length){ currentQ=null; $("#qSec").textContent="Voľne"; $("#qText").textContent="Rozprávaj o čomkoľvek."; return; }
-  qi = ((qi % QS.length)+QS.length) % QS.length; lsSet("qi", qi);
-  currentQ = QS[qi]; $("#qSec").textContent=currentQ.sec||"Otázka"; $("#qText").textContent=currentQ.q;
+  const p = pool();
+  if (freeMode || !p.length){ showFree(); if (!p.length && !freeMode && QS.length) $("#qText").textContent += " (Otázky v tomto okruhu sú zodpovedané.)"; return; }
+  qi = ((qi % p.length)+p.length) % p.length; lsSet("qi", qi);
+  currentQ = p[qi]; $("#qSec").textContent = currentQ.sec || "Otázka"; $("#qText").textContent = currentQ.q;
 }
-$("#btnNextQ").onclick = () => { qi++; showQuestion(); };
-$("#btnFreeQ").onclick = () => { currentQ=null; $("#qSec").textContent="Voľne"; $("#qText").textContent="Rozprávaj o čomkoľvek."; };
+function markAnswered(q){ if (q && !answered.includes(q.q)){ answered.push(q.q); lsSet("answered", answered); } }
+const curSec = () => currentQ ? currentQ.sec : (selSec || null);
+$("#qSecSel").onchange = () => { selSec = $("#qSecSel").value; lsSet("selSec", selSec); qi = 0; showQuestion(); };
+$("#btnNextQ").onclick = () => { freeMode = false; qi++; showQuestion(); };
+$("#btnRandQ").onclick = () => { freeMode = false; const n = pool().length; if (n) qi = Math.floor(Math.random()*n); showQuestion(); };
+$("#btnFreeQ").onclick = () => { freeMode = true; showFree(); };
 
 /* ---------- záložky ---------- */
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
@@ -517,7 +545,7 @@ $("#btnArDel").onclick = async () => {
 };
 
 /* ---------- nahrávanie ---------- */
-let rec=null, stream=null, chunks=[], t0=0, tick=null, wake=null, audioBlob=null, audioSecs=0, recQ=null;
+let rec=null, stream=null, chunks=[], t0=0, tick=null, wake=null, audioBlob=null, audioSecs=0, recQ=null, recSec=null;
 function pickMime(){
   if (!window.MediaRecorder) return null;
   for (const m of ["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus","audio/webm"])
@@ -534,7 +562,7 @@ $("#btnRec").onclick = async () => {
   try{ stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true}}); }
   catch(e){ $("#recHint").textContent="Bez prístupu k mikrofónu to nepôjde. Povoľ ho v nastaveniach prehliadača."; return; }
   rec = new MediaRecorder(stream, mime ? {mimeType:mime, audioBitsPerSecond:64000} : {});
-  chunks=[]; recQ=currentQ;
+  chunks=[]; recQ=currentQ; recSec=curSec();
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
     clearInterval(tick); audioSecs=Math.round((Date.now()-t0)/1000);
@@ -560,11 +588,11 @@ $("#btnVDiscard").onclick = () => { if (confirm("Naozaj zahodiť túto nahrávku
 $("#btnVSave").onclick = async () => {
   if (!audioBlob) return;
   const base = stamp()+"-hlas", file = base+"."+extFor(audioBlob.type);
-  const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, oblast:recQ&&recQ.sec,
+  const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, oblast:recSec,
     pre:$("#vFor").value, subor:file, dlzka_s:audioSecs}, $("#vNote").value);
   await enqueue("Hlasová spomienka "+base.slice(0,10)+(recQ?": "+recQ.q:""),
     [{path:INBOX+"/"+file, blob:audioBlob}, {path:INBOX+"/"+base+".md", text:md}]);
-  resetVoice(); if (recQ===currentQ && currentQ){ qi++; showQuestion(); }
+  markAnswered(recQ); resetVoice(); if (recQ && recQ===currentQ) showQuestion();
 };
 addEventListener("beforeunload", e => { if ((rec && rec.state==="recording") || audioBlob){ e.preventDefault(); e.returnValue=""; } });
 
@@ -574,8 +602,8 @@ $("#btnTSave").onclick = async () => {
   const base = stamp()+"-text";
   await enqueue("Písaná spomienka "+base.slice(0,10)+(currentQ?": "+currentQ.q:""),
     [{path:INBOX+"/"+base+".md", text:frontmatter({typ:"text", zaznamenane:isoLocal(), otazka:currentQ&&currentQ.q,
-      oblast:currentQ&&currentQ.sec, pre:$("#tFor").value}, body)}]);
-  $("#tBody").value=""; if (currentQ){ qi++; showQuestion(); }
+      oblast:curSec(), pre:$("#tFor").value}, body)}]);
+  $("#tBody").value=""; if (currentQ){ markAnswered(currentQ); showQuestion(); }
 };
 
 /* ---------- fotky ---------- */
