@@ -51,6 +51,10 @@ button,select,input,textarea{font:inherit;color:inherit}
 .rec.on{animation:pulse 1.6s infinite}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(.94)}}
 .timer{font-size:34px;font-variant-numeric:tabular-nums;font-weight:600}
+.meter{width:min(70vw,260px);height:10px;border-radius:5px;background:var(--line);overflow:hidden}
+.meter>i{display:block;height:100%;width:0;background:var(--ok);transition:width .08s}
+.mic{font-size:13px;color:var(--muted);text-align:center}
+.warn{color:var(--err);font-weight:700;text-align:center}
 .hint{color:var(--muted);font-size:14px;text-align:center}
 label{display:block;font-weight:600;margin:12px 0 6px}
 input[type=text],input[type=password],textarea,select{width:100%;border:1px solid var(--line);
@@ -121,12 +125,18 @@ a{color:var(--accent);font-weight:600}
       <div class="rec-wrap">
         <button class="rec" id="btnRec">Nahrávať</button>
         <div class="timer" id="timer">0:00</div>
+        <div class="meter hidden" id="meter"><i id="meterBar"></i></div>
+        <div class="mic hidden" id="micName"></div>
+        <div class="warn hidden" id="silentWarn">Nepočujem ťa. Skontroluj mikrofón,
+          nie je zapnutá handsfree sada alebo Bluetooth?</div>
         <div class="hint" id="recHint">Ťukni a rozprávaj. Šoférovanie má prednosť,
           nahrávaj, keď stojíš alebo máš telefón v držiaku.</div>
       </div>
     </div>
     <div class="card hidden" id="reviewCard">
       <h2>Nahrávka</h2>
+      <div class="warn hidden" id="silentDone">V nahrávke takmer nič nepočuť.
+        Pusti si ju a ak je prázdna, zahoď ju a nahraj znova.</div>
       <audio id="player" controls></audio>
       <label for="vNote">Poznámka (nepovinné)</label>
       <textarea id="vNote" placeholder="Napr. kto tam bol, približný rok…"></textarea>
@@ -555,6 +565,39 @@ function pickMime(){
 function extFor(type){ return /mp4|aac|m4a/.test(type)?"m4a":/ogg/.test(type)?"ogg":/webm/.test(type)?"webm":"audio"; }
 const fmt = s => (s/60|0)+":"+pad(s%60|0);
 
+/* ukazovateľ hlasitosti a kontrola ticha */
+const SILENT = 0.02, SILENT_AFTER_MS = 4000;
+let actx=null, meterRaf=0, peakAll=0, lastLoud=0;
+function startMeter(st){
+  peakAll=0; lastLoud=Date.now();
+  const track = st.getAudioTracks()[0];
+  $("#micName").textContent = "Mikrofón: "+((track && track.label) || "predvolený");
+  $("#micName").classList.remove("hidden"); $("#meter").classList.remove("hidden");
+  $("#silentWarn").classList.add("hidden");
+  try{
+    actx = new (window.AudioContext||window.webkitAudioContext)();
+    const an = actx.createAnalyser(); an.fftSize = 1024;
+    actx.createMediaStreamSource(st).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const loop = () => {
+      an.getFloatTimeDomainData(buf);
+      let pk=0; for (const v of buf){ const a=Math.abs(v); if (a>pk) pk=a; }
+      if (pk>peakAll) peakAll=pk;
+      if (pk>=SILENT) lastLoud=Date.now();
+      $("#meterBar").style.width = Math.min(100, Math.sqrt(pk)*140)+"%";
+      $("#silentWarn").classList.toggle("hidden", Date.now()-lastLoud < SILENT_AFTER_MS);
+      meterRaf = requestAnimationFrame(loop);
+    };
+    loop();
+  }catch{ peakAll=1; }
+}
+function stopMeter(){
+  cancelAnimationFrame(meterRaf);
+  if (actx){ actx.close().catch(()=>{}); actx=null; }
+  ["#meter","#micName","#silentWarn"].forEach(s=>$(s).classList.add("hidden"));
+  $("#silentDone").classList.toggle("hidden", peakAll >= SILENT);
+}
+
 $("#btnRec").onclick = async () => {
   if (rec && rec.state==="recording"){ rec.stop(); return; }
   const mime = pickMime();
@@ -566,6 +609,7 @@ $("#btnRec").onclick = async () => {
   rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
   rec.onstop = () => {
     clearInterval(tick); audioSecs=Math.round((Date.now()-t0)/1000);
+    stopMeter();
     stream.getTracks().forEach(t=>t.stop());
     if (wake){ wake.release().catch(()=>{}); wake=null; }
     audioBlob = new Blob(chunks, {type: rec.mimeType || mime || "audio/webm"});
@@ -573,7 +617,7 @@ $("#btnRec").onclick = async () => {
     $("#player").src = URL.createObjectURL(audioBlob);
     $("#recCard").classList.add("hidden"); $("#reviewCard").classList.remove("hidden");
   };
-  rec.start(1000); t0=Date.now();
+  rec.start(1000); t0=Date.now(); startMeter(stream);
   try{ if (navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); }catch{}
   $("#btnRec").classList.add("on"); $("#btnRec").textContent="Stop";
   $("#recHint").textContent="Nahrávam… ťukni na Stop, keď skončíš.";
@@ -582,11 +626,13 @@ $("#btnRec").onclick = async () => {
 function resetVoice(){
   audioBlob=null; $("#player").removeAttribute("src"); $("#vNote").value=""; $("#timer").textContent="0:00";
   $("#recHint").textContent="Ťukni a rozprávaj.";
+  $("#silentDone").classList.add("hidden");
   $("#reviewCard").classList.add("hidden"); $("#recCard").classList.remove("hidden");
 }
 $("#btnVDiscard").onclick = () => { if (confirm("Naozaj zahodiť túto nahrávku?")) resetVoice(); };
 $("#btnVSave").onclick = async () => {
   if (!audioBlob) return;
+  if (peakAll < SILENT && !confirm("V nahrávke takmer nič nepočuť. Naozaj ju uložiť?")) return;
   const base = stamp()+"-hlas", file = base+"."+extFor(audioBlob.type);
   const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, oblast:recSec,
     pre:$("#vFor").value, subor:file, dlzka_s:audioSecs}, $("#vNote").value);
