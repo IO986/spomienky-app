@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2a211b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spomienky">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Spomienky</title>
+<style>
+:root{
+  --bg:#f6f1ea; --card:#fffdf9; --ink:#2a211b; --muted:#7a6a5d; --line:#e4d9cc;
+  --accent:#b5562f; --accent-ink:#fff; --ok:#3d7a4a; --err:#a8322a;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#1c1713; --card:#27201b; --ink:#f1e8de; --muted:#ad9c8d; --line:#3b3129;
+    --accent:#d9774c; --accent-ink:#1c1713; --ok:#7fbf8c; --err:#e2766b;}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 0 8px}
+h1{font-size:22px;margin:0;font-weight:650}
+h2{font-size:18px;margin:0 0 10px}
+button,select,input,textarea{font:inherit;color:inherit}
+.icon-btn{background:none;border:0;padding:8px;font-size:22px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
+.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;padding:4px}
+.tabs button{border:0;background:none;padding:10px 4px;border-radius:10px;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected=true]{background:var(--accent);color:var(--accent-ink)}
+.q-sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.q-text{font-size:20px;margin:4px 0 12px;font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:12px;padding:10px 14px;font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.wide{width:100%;padding:14px}
+.btn:disabled{opacity:.5}
+.rec-wrap{display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px 0}
+.rec{width:min(62vw,220px);aspect-ratio:1;border-radius:50%;border:0;background:var(--accent);
+  color:var(--accent-ink);font-size:22px;font-weight:700;box-shadow:0 8px 24px rgb(0 0 0/.18)}
+.rec.on{animation:pulse 1.6s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(.94)}}
+.timer{font-size:34px;font-variant-numeric:tabular-nums;font-weight:600}
+.hint{color:var(--muted);font-size:14px;text-align:center}
+label{display:block;font-weight:600;margin:12px 0 6px}
+input[type=text],input[type=password],textarea,select{width:100%;border:1px solid var(--line);
+  background:var(--bg);border-radius:10px;padding:10px 12px}
+textarea{min-height:110px;resize:vertical}
+audio{width:100%;margin:8px 0}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px}
+.thumbs img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px}
+.status{font-size:14px;color:var(--muted)}
+.status.ok{color:var(--ok)} .status.err{color:var(--err)}
+.queue li{margin:4px 0}
+.hidden{display:none!important}
+small{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Spomienky</h1>
+  <button class="icon-btn" id="btnSettings" aria-label="Nastavenia">⚙</button>
+</header>
+
+<!-- NASTAVENIA -->
+<section id="setup" class="card hidden">
+  <h2>Nastavenia</h2>
+  <p class="status">Nahrávky sa ukladajú do tvojho súkromného GitHub repozitára.
+    Prístupový token zostáva len v tomto telefóne.</p>
+  <label for="sOwner">Vlastník repozitára</label>
+  <input type="text" id="sOwner" autocapitalize="off" autocomplete="off">
+  <label for="sRepo">Repozitár</label>
+  <input type="text" id="sRepo" autocapitalize="off" autocomplete="off">
+  <label for="sBranch">Vetva</label>
+  <input type="text" id="sBranch" value="main" autocapitalize="off">
+  <label for="sToken">Token (fine-grained, Contents: Read and write)</label>
+  <input type="password" id="sToken" autocomplete="off">
+  <div class="row" style="margin-top:14px">
+    <button class="btn primary" id="btnSave">Uložiť a overiť</button>
+    <button class="btn" id="btnCloseSetup">Zavrieť</button>
+  </div>
+  <p class="status" id="setupStatus"></p>
+</section>
+
+<main id="app">
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="voice" aria-selected="true">Hovoriť</button>
+    <button role="tab" data-tab="text" aria-selected="false">Písať</button>
+    <button role="tab" data-tab="photo" aria-selected="false">Fotka</button>
+  </nav>
+
+  <!-- OTÁZKA -->
+  <section class="card" id="qCard">
+    <div class="q-sec" id="qSec">Otázka</div>
+    <div class="q-text" id="qText">Načítavam…</div>
+    <div class="row">
+      <button class="btn" id="btnNextQ">Iná otázka</button>
+      <button class="btn" id="btnFreeQ">Bez otázky</button>
+    </div>
+  </section>
+
+  <!-- HLAS -->
+  <section data-panel="voice">
+    <div class="card" id="recCard">
+      <div class="rec-wrap">
+        <button class="rec" id="btnRec">Nahrávať</button>
+        <div class="timer" id="timer">0:00</div>
+        <div class="hint" id="recHint">Ťukni a rozprávaj. Šoférovanie má prednosť,
+          nahrávaj, keď stojíš alebo máš telefón v držiaku.</div>
+      </div>
+    </div>
+    <div class="card hidden" id="reviewCard">
+      <h2>Nahrávka</h2>
+      <audio id="player" controls></audio>
+      <label for="vNote">Poznámka (nepovinné)</label>
+      <textarea id="vNote" placeholder="Napr. kto tam bol, približný rok…"></textarea>
+      <label for="vFor">Pre koho</label>
+      <select id="vFor"></select>
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary" id="btnVSave">Uložiť</button>
+        <button class="btn" id="btnVDiscard">Zahodiť</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- TEXT -->
+  <section data-panel="text" class="hidden">
+    <div class="card">
+      <label for="tBody" style="margin-top:0">Spomienka</label>
+      <textarea id="tBody" style="min-height:220px" placeholder="Píš vlastnými slovami…"></textarea>
+      <label for="tFor">Pre koho</label>
+      <select id="tFor"></select>
+      <button class="btn primary wide" id="btnTSave" style="margin-top:14px">Uložiť</button>
+    </div>
+  </section>
+
+  <!-- FOTKA -->
+  <section data-panel="photo" class="hidden">
+    <div class="card">
+      <label for="pFiles" style="margin-top:0">Fotky</label>
+      <input type="file" id="pFiles" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
+      <label for="pDesc">Čo je na fotke? Kto, kde, kedy, aký je príbeh?</label>
+      <textarea id="pDesc"></textarea>
+      <label for="pFor">Pre koho</label>
+      <select id="pFor"></select>
+      <button class="btn primary wide" id="btnPSave" style="margin-top:14px">Uložiť</button>
+    </div>
+  </section>
+
+  <!-- FRONTA -->
+  <section class="card">
+    <div class="status" id="qStatus">Všetko odoslané.</div>
+    <ul class="queue status" id="queueList"></ul>
+    <button class="btn hidden" id="btnRetry">Skúsiť odoslať znova</button>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+// Generic defaults; the real list (with names) lives in the private repo: mobil/pre-koho.json
+const DEFAULT_FOR = [["vsetci","Všetci"],["deti","Deti"],["sukromne","Súkromné (zatiaľ nikto)"]];
+const INBOX = "prichadzajuce";
+
+/* ---------- nastavenia ---------- */
+function lsGet(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch{ return d; } }
+function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
+let S = lsGet("settings", {owner:"", repo:"", branch:"main", token:""});
+const configured = () => S.owner && S.repo && S.token;
+
+function showSetup(show){
+  $("#setup").classList.toggle("hidden", !show);
+  $("#app").classList.toggle("hidden", show);
+  if (show){ $("#sOwner").value=S.owner; $("#sRepo").value=S.repo; $("#sBranch").value=S.branch||"main"; $("#sToken").value=S.token; }
+}
+$("#btnSettings").onclick = () => showSetup($("#setup").classList.contains("hidden"));
+$("#btnCloseSetup").onclick = () => { if (configured()) showSetup(false); };
+$("#btnSave").onclick = async () => {
+  S = { owner:$("#sOwner").value.trim(), repo:$("#sRepo").value.trim(),
+        branch:$("#sBranch").value.trim()||"main", token:$("#sToken").value.trim() };
+  const st = $("#setupStatus"); st.className="status"; st.textContent="Overujem…";
+  try{
+    const r = await gh("");
+    if (!r.permissions || !r.permissions.push) throw new Error("Token nemá právo zápisu.");
+    lsSet("settings", S);
+    st.className="status ok"; st.textContent="Hotovo, pripojené k "+r.full_name+(r.private?" (súkromný)":"");
+    loadQuestions(true); loadForOptions(); processQueue();
+    setTimeout(()=>showSetup(false), 900);
+  }catch(e){ st.className="status err"; st.textContent="Chyba: "+e.message; }
+};
+
+/* ---------- GitHub API ---------- */
+async function gh(path, opts={}){
+  const headers = { Authorization:"Bearer "+S.token, "X-GitHub-Api-Version":"2022-11-28",
+                    Accept: opts.accept || "application/vnd.github+json" };
+  if (opts.body) headers["Content-Type"]="application/json";
+  const r = await fetch("https://api.github.com/repos/"+encodeURIComponent(S.owner)+"/"+encodeURIComponent(S.repo)+path,
+                        {method:opts.method||"GET", headers, body:opts.body});
+  if (!r.ok){
+    let msg = r.status+"";
+    try{ msg += " "+(await r.json()).message; }catch{}
+    const e = new Error(msg); e.status=r.status; throw e;
+  }
+  if (opts.accept && opts.accept.includes("raw")) return r.text();
+  return r.status===204 ? null : r.json();
+}
+function blobToB64(blob){
+  return new Promise((res,rej)=>{ const fr=new FileReader();
+    fr.onload=()=>res(String(fr.result).split(",")[1]); fr.onerror=()=>rej(fr.error); fr.readAsDataURL(blob); });
+}
+/* Všetky súbory jednej položky = jeden commit. */
+async function commitFiles(files, message){
+  const tree = [];
+  for (const f of files){
+    const body = f.text!=null ? {content:f.text, encoding:"utf-8"} : {content:await blobToB64(f.blob), encoding:"base64"};
+    const b = await gh("/git/blobs", {method:"POST", body:JSON.stringify(body)});
+    tree.push({path:f.path, mode:"100644", type:"blob", sha:b.sha});
+  }
+  for (let i=0;i<4;i++){
+    const ref = await gh("/git/ref/heads/"+S.branch);
+    const head = await gh("/git/commits/"+ref.object.sha);
+    const t = await gh("/git/trees", {method:"POST", body:JSON.stringify({base_tree:head.tree.sha, tree})});
+    const c = await gh("/git/commits", {method:"POST", body:JSON.stringify({message, tree:t.sha, parents:[ref.object.sha]})});
+    try{ await gh("/git/refs/heads/"+S.branch, {method:"PATCH", body:JSON.stringify({sha:c.sha})}); return; }
+    catch(e){ if (e.status!==422) throw e; }
+  }
+  throw new Error("Konflikt pri zápise, skúsim neskôr.");
+}
+
+/* ---------- fronta (IndexedDB), aby sa nič nestratilo bez signálu ---------- */
+let dbP = null;
+function db(){
+  if (!dbP) dbP = new Promise((res,rej)=>{
+    const r = indexedDB.open("spomienky",1);
+    r.onupgradeneeded = () => r.result.createObjectStore("queue",{keyPath:"id"});
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  return dbP;
+}
+async function store(mode, fn){
+  const d = await db();
+  return new Promise((res,rej)=>{ const tx=d.transaction("queue",mode); const r=fn(tx.objectStore("queue"));
+    tx.oncomplete=()=>res(r && r.result); tx.onerror=()=>rej(tx.error); });
+}
+const qAll = () => store("readonly", s=>s.getAll());
+const qPut = item => store("readwrite", s=>s.put(item));
+const qDel = id => store("readwrite", s=>s.delete(id));
+
+let busy = false, lastError = "";
+async function processQueue(){
+  if (busy || !configured()) return renderQueue();
+  busy = true; lastError = "";
+  try{
+    const items = (await qAll()).sort((a,b)=>a.id.localeCompare(b.id));
+    for (const it of items){
+      renderQueue("Odosielam: "+it.title+"…");
+      try{ await commitFiles(it.files, it.title); await qDel(it.id); }
+      catch(e){ lastError = e.message; break; }
+    }
+  } finally { busy=false; renderQueue(); }
+}
+async function renderQueue(msg){
+  const items = await qAll().catch(()=>[]);
+  const st = $("#qStatus"), list = $("#queueList");
+  list.innerHTML = "";
+  for (const it of items){ const li=document.createElement("li"); li.textContent="• "+it.title; list.appendChild(li); }
+  $("#btnRetry").classList.toggle("hidden", !items.length || busy);
+  if (msg){ st.className="status"; st.textContent=msg; }
+  else if (!items.length){ st.className="status ok"; st.textContent="Všetko odoslané ✓"; }
+  else { st.className = lastError ? "status err" : "status";
+         st.textContent = "Čaká na odoslanie: "+items.length+(lastError?" (chyba: "+lastError+")":" (bez signálu sa odošle neskôr)"); }
+}
+$("#btnRetry").onclick = processQueue;
+addEventListener("online", processQueue);
+
+/* ---------- pomocné ---------- */
+const pad = n => String(n).padStart(2,"0");
+function stamp(d=new Date()){ return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"_"+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds()); }
+function isoLocal(d=new Date()){
+  const o=-d.getTimezoneOffset(), s=o>=0?"+":"-", a=Math.abs(o);
+  return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+s+pad(a/60|0)+":"+pad(a%60);
+}
+function frontmatter(obj, body){
+  const lines = ["---"];
+  for (const [k,v] of Object.entries(obj)){
+    if (v==null || v==="") continue;
+    lines.push(k+": "+(Array.isArray(v) ? "["+v.map(x=>JSON.stringify(x)).join(", ")+"]" : (typeof v==="number" ? v : JSON.stringify(v))));
+  }
+  lines.push("---","",(body||"").trim(),"");
+  return lines.join("\n");
+}
+async function enqueue(title, files){
+  await qPut({id:stamp()+"-"+Math.random().toString(36).slice(2,6), title, files});
+  processQueue();
+}
+function fillFor(opts){
+  for (const s of ["#vFor","#tFor","#pFor"]){
+    const sel=$(s), keep=sel.value; sel.innerHTML="";
+    for (const [v,t] of opts){ const o=document.createElement("option"); o.value=v; o.textContent=t; sel.appendChild(o); }
+    if (keep && opts.some(o=>o[0]===keep)) sel.value=keep;
+  }
+}
+fillFor(lsGet("forOptions", DEFAULT_FOR));
+async function loadForOptions(){
+  if (!configured()) return;
+  try{
+    const o = JSON.parse(await gh("/contents/mobil/pre-koho.json?ref="+encodeURIComponent(S.branch), {accept:"application/vnd.github.raw+json"}));
+    if (Array.isArray(o) && o.length){ lsSet("forOptions", o); fillFor(o); }
+  }catch{}
+}
+function flash(msg){ renderQueue(msg); }
+
+/* ---------- otázky zo zásobníka ---------- */
+let QS = lsGet("questions", []), qi = lsGet("qi", 0), currentQ = null;
+function parseQuestions(md){
+  let sec=""; const out=[];
+  for (const l of md.split(/\r?\n/)){
+    const h = l.match(/^##\s+(.*)/); if (h){ sec=h[1].trim(); continue; }
+    const m = l.match(/^\s*-\s\[\s\]\s+(.+)/); if (m) out.push({sec, q:m[1].trim()});
+  }
+  return out;
+}
+async function loadQuestions(force){
+  if (configured() && (force || !QS.length || navigator.onLine)){
+    try{ QS = parseQuestions(await gh("/contents/otazky/zasobnik.md?ref="+encodeURIComponent(S.branch), {accept:"application/vnd.github.raw+json"})); lsSet("questions", QS); }
+    catch{}
+  }
+  showQuestion();
+}
+function showQuestion(){
+  if (!QS.length){ currentQ=null; $("#qSec").textContent="Voľne"; $("#qText").textContent="Rozprávaj o čomkoľvek."; return; }
+  qi = ((qi % QS.length)+QS.length) % QS.length; lsSet("qi", qi);
+  currentQ = QS[qi]; $("#qSec").textContent=currentQ.sec||"Otázka"; $("#qText").textContent=currentQ.q;
+}
+$("#btnNextQ").onclick = () => { qi++; showQuestion(); };
+$("#btnFreeQ").onclick = () => { currentQ=null; $("#qSec").textContent="Voľne"; $("#qText").textContent="Rozprávaj o čomkoľvek."; };
+
+/* ---------- záložky ---------- */
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x=>x.setAttribute("aria-selected", x===b));
+  document.querySelectorAll("[data-panel]").forEach(p=>p.classList.toggle("hidden", p.dataset.panel!==b.dataset.tab));
+  $("#qCard").classList.toggle("hidden", b.dataset.tab==="photo");
+});
+
+/* ---------- nahrávanie ---------- */
+let rec=null, stream=null, chunks=[], t0=0, tick=null, wake=null, audioBlob=null, audioSecs=0, recQ=null;
+function pickMime(){
+  if (!window.MediaRecorder) return null;
+  for (const m of ["audio/webm;codecs=opus","audio/mp4","audio/ogg;codecs=opus","audio/webm"])
+    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) return m;
+  return "";
+}
+function extFor(type){ return /mp4|aac|m4a/.test(type)?"m4a":/ogg/.test(type)?"ogg":/webm/.test(type)?"webm":"audio"; }
+const fmt = s => (s/60|0)+":"+pad(s%60|0);
+
+$("#btnRec").onclick = async () => {
+  if (rec && rec.state==="recording"){ rec.stop(); return; }
+  const mime = pickMime();
+  if (mime===null){ $("#recHint").textContent="Tento prehliadač nevie nahrávať zvuk."; return; }
+  try{ stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true}}); }
+  catch(e){ $("#recHint").textContent="Bez prístupu k mikrofónu to nepôjde. Povoľ ho v nastaveniach prehliadača."; return; }
+  rec = new MediaRecorder(stream, mime ? {mimeType:mime, audioBitsPerSecond:64000} : {});
+  chunks=[]; recQ=currentQ;
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    clearInterval(tick); audioSecs=Math.round((Date.now()-t0)/1000);
+    stream.getTracks().forEach(t=>t.stop());
+    if (wake){ wake.release().catch(()=>{}); wake=null; }
+    audioBlob = new Blob(chunks, {type: rec.mimeType || mime || "audio/webm"});
+    $("#btnRec").classList.remove("on"); $("#btnRec").textContent="Nahrávať";
+    $("#player").src = URL.createObjectURL(audioBlob);
+    $("#recCard").classList.add("hidden"); $("#reviewCard").classList.remove("hidden");
+  };
+  rec.start(1000); t0=Date.now();
+  try{ if (navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); }catch{}
+  $("#btnRec").classList.add("on"); $("#btnRec").textContent="Stop";
+  $("#recHint").textContent="Nahrávam… ťukni na Stop, keď skončíš.";
+  tick = setInterval(()=>{ $("#timer").textContent=fmt((Date.now()-t0)/1000); }, 500);
+};
+function resetVoice(){
+  audioBlob=null; $("#player").removeAttribute("src"); $("#vNote").value=""; $("#timer").textContent="0:00";
+  $("#recHint").textContent="Ťukni a rozprávaj.";
+  $("#reviewCard").classList.add("hidden"); $("#recCard").classList.remove("hidden");
+}
+$("#btnVDiscard").onclick = () => { if (confirm("Naozaj zahodiť túto nahrávku?")) resetVoice(); };
+$("#btnVSave").onclick = async () => {
+  if (!audioBlob) return;
+  const base = stamp()+"-hlas", file = base+"."+extFor(audioBlob.type);
+  const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, oblast:recQ&&recQ.sec,
+    pre:$("#vFor").value, subor:file, dlzka_s:audioSecs}, $("#vNote").value);
+  await enqueue("Hlasová spomienka "+base.slice(0,10)+(recQ?": "+recQ.q:""),
+    [{path:INBOX+"/"+file, blob:audioBlob}, {path:INBOX+"/"+base+".md", text:md}]);
+  resetVoice(); if (recQ===currentQ && currentQ){ qi++; showQuestion(); }
+};
+addEventListener("beforeunload", e => { if ((rec && rec.state==="recording") || audioBlob){ e.preventDefault(); e.returnValue=""; } });
+
+/* ---------- text ---------- */
+$("#btnTSave").onclick = async () => {
+  const body = $("#tBody").value.trim(); if (!body) return;
+  const base = stamp()+"-text";
+  await enqueue("Písaná spomienka "+base.slice(0,10)+(currentQ?": "+currentQ.q:""),
+    [{path:INBOX+"/"+base+".md", text:frontmatter({typ:"text", zaznamenane:isoLocal(), otazka:currentQ&&currentQ.q,
+      oblast:currentQ&&currentQ.sec, pre:$("#tFor").value}, body)}]);
+  $("#tBody").value=""; if (currentQ){ qi++; showQuestion(); }
+};
+
+/* ---------- fotky ---------- */
+$("#pFiles").onchange = () => {
+  const th=$("#thumbs"); th.innerHTML="";
+  for (const f of $("#pFiles").files){ const i=document.createElement("img"); i.src=URL.createObjectURL(f); i.alt=""; th.appendChild(i); }
+};
+$("#btnPSave").onclick = async () => {
+  const files=[...$("#pFiles").files]; if (!files.length) return;
+  const base=stamp()+"-foto", out=[], names=[];
+  files.forEach((f,i)=>{ const ext=(f.name.split(".").pop()||"jpg").toLowerCase(); const n=base+"-"+(i+1)+"."+ext; names.push(n); out.push({path:INBOX+"/"+n, blob:f}); });
+  out.push({path:INBOX+"/"+base+".md", text:frontmatter({typ:"fotka", zaznamenane:isoLocal(), pre:$("#pFor").value, subory:names}, $("#pDesc").value)});
+  await enqueue("Fotky "+base.slice(0,10)+" ("+files.length+")", out);
+  $("#pFiles").value=""; $("#thumbs").innerHTML=""; $("#pDesc").value="";
+};
+
+/* ---------- štart ---------- */
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{});
+if (!configured()) showSetup(true);
+loadQuestions(); loadForOptions(); processQueue();
+</script>
+</body>
+</html>
