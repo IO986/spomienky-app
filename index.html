@@ -81,6 +81,8 @@ small{color:var(--muted)}
   <input type="text" id="sBranch" value="main" autocapitalize="off">
   <label for="sToken">Token (fine-grained, Contents: Read and write)</label>
   <input type="password" id="sToken" autocomplete="off">
+  <p class="status">Token ešte nemáš? <a id="tokenLink" target="_blank" rel="noopener">Vytvoriť token na GitHube</a>.
+    Pri „Repository access“ vyber „Only select repositories“ a svoj súkromný repozitár, potom token skopíruj sem.</p>
   <div class="row" style="margin-top:14px">
     <button class="btn primary" id="btnSave">Uložiť a overiť</button>
     <button class="btn" id="btnCloseSetup">Zavrieť</button>
@@ -173,13 +175,27 @@ const INBOX = "prichadzajuce";
 function lsGet(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch{ return d; } }
 function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 let S = lsGet("settings", {owner:"", repo:"", branch:"main", token:""});
+// Prefill from link: index.html#owner=X&repo=Y (never the token)
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get("owner") && !S.owner) S.owner = h.get("owner");
+  if (h.get("repo") && !S.repo) S.repo = h.get("repo");
+  if (location.hash) history.replaceState(null, "", location.pathname);
+})();
 const configured = () => S.owner && S.repo && S.token;
+function tokenUrl(owner){
+  const p = new URLSearchParams({name:"Spomienky mobil", description:"Nahravanie spomienok z mobilu",
+    target_name:owner||"", expires_in:"none", contents:"write"});
+  return "https://github.com/settings/personal-access-tokens/new?"+p;
+}
 
 function showSetup(show){
   $("#setup").classList.toggle("hidden", !show);
   $("#app").classList.toggle("hidden", show);
-  if (show){ $("#sOwner").value=S.owner; $("#sRepo").value=S.repo; $("#sBranch").value=S.branch||"main"; $("#sToken").value=S.token; }
+  if (show){ $("#sOwner").value=S.owner; $("#sRepo").value=S.repo; $("#sBranch").value=S.branch||"main"; $("#sToken").value=S.token;
+             $("#tokenLink").href=tokenUrl(S.owner); }
 }
+$("#sOwner").oninput = () => { $("#tokenLink").href=tokenUrl($("#sOwner").value.trim()); };
 $("#btnSettings").onclick = () => showSetup($("#setup").classList.contains("hidden"));
 $("#btnCloseSetup").onclick = () => { if (configured()) showSetup(false); };
 $("#btnSave").onclick = async () => {
