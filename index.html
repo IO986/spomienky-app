@@ -385,14 +385,24 @@ function flash(msg){ renderQueue(msg); }
 
 /* ---------- otázky zo zásobníka ---------- */
 let QS = lsGet("questions", []), qi = lsGet("qi", 0), currentQ = null;
+// Answered questions come back after a year. The last YYYY-MM-DD on a ticked
+// line is the date of the latest answer; the question text ends at its "?".
+const REPEAT_DAYS = 365;
 function parseQuestions(md){
   let sec=""; const out=[];
   for (const l of md.split(/\r?\n/)){
     const h = l.match(/^##\s+(.*)/); if (h){ sec=h[1].trim(); continue; }
-    const m = l.match(/^\s*-\s\[\s\]\s+(.+)/); if (m) out.push({sec, q:m[1].trim()});
+    const m = l.match(/^\s*-\s\[\s\]\s+(.+)/); if (m){ out.push({sec, q:m[1].trim()}); continue; }
+    const x = l.match(/^\s*-\s\[x\]\s+(.+)/i); if (!x) continue;
+    const dates = x[1].match(/\d{4}-\d{2}-\d{2}/g); if (!dates) continue;
+    const last = dates[dates.length-1];
+    if ((Date.now() - new Date(last+"T00:00:00")) / 864e5 < REPEAT_DAYS) continue;
+    const q = (x[1].match(/^[^?]*\?/) || [])[0] || x[1].split(/\s+(?:→|\()/)[0];
+    out.push({sec, q:q.trim(), again:last});
   }
   return out;
 }
+const fmtDate = d => { const [y,m,dd] = d.split("-"); return (+dd)+". "+(+m)+". "+y; };
 async function loadQuestions(force){
   if (configured() && (force || !QS.length || navigator.onLine)){
     try{
@@ -425,7 +435,9 @@ function showQuestion(){
   const p = pool();
   if (freeMode || !p.length){ showFree(); if (!p.length && !freeMode && QS.length) $("#qText").textContent += " (Otázky v tomto okruhu sú zodpovedané.)"; return; }
   qi = ((qi % p.length)+p.length) % p.length; lsSet("qi", qi);
-  currentQ = p[qi]; $("#qSec").textContent = currentQ.sec || "Otázka"; $("#qText").textContent = currentQ.q;
+  currentQ = p[qi];
+  $("#qSec").textContent = (currentQ.sec || "Otázka") + (currentQ.again ? " · opakovanie, minule "+fmtDate(currentQ.again) : "");
+  $("#qText").textContent = currentQ.q;
 }
 function markAnswered(q){ if (q && !answered.includes(q.q)){ answered.push(q.q); lsSet("answered", answered); } }
 const curSec = () => currentQ ? currentQ.sec : (selSec || null);
@@ -634,7 +646,7 @@ $("#btnVSave").onclick = async () => {
   if (!audioBlob) return;
   if (peakAll < SILENT && !confirm("V nahrávke takmer nič nepočuť. Naozaj ju uložiť?")) return;
   const base = stamp()+"-hlas", file = base+"."+extFor(audioBlob.type);
-  const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, oblast:recSec,
+  const md = frontmatter({typ:"hlas", zaznamenane:isoLocal(), otazka:recQ&&recQ.q, minule:recQ&&recQ.again, oblast:recSec,
     pre:$("#vFor").value, subor:file, dlzka_s:audioSecs}, $("#vNote").value);
   await enqueue("Hlasová spomienka "+base.slice(0,10)+(recQ?": "+recQ.q:""),
     [{path:INBOX+"/"+file, blob:audioBlob}, {path:INBOX+"/"+base+".md", text:md}]);
@@ -647,7 +659,7 @@ $("#btnTSave").onclick = async () => {
   const body = $("#tBody").value.trim(); if (!body) return;
   const base = stamp()+"-text";
   await enqueue("Písaná spomienka "+base.slice(0,10)+(currentQ?": "+currentQ.q:""),
-    [{path:INBOX+"/"+base+".md", text:frontmatter({typ:"text", zaznamenane:isoLocal(), otazka:currentQ&&currentQ.q,
+    [{path:INBOX+"/"+base+".md", text:frontmatter({typ:"text", zaznamenane:isoLocal(), otazka:currentQ&&currentQ.q, minule:currentQ&&currentQ.again,
       oblast:curSec(), pre:$("#tFor").value}, body)}]);
   $("#tBody").value=""; if (currentQ){ markAnswered(currentQ); showQuestion(); }
 };
